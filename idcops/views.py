@@ -30,6 +30,7 @@ from django.utils.module_loading import import_string
 from django.urls import reverse_lazy
 
 # Create your views here.
+from idcops.actions import construct_model_meta
 from idcops.lib.utils import shared_queryset, get_content_type_for_model
 from idcops.mixins import BaseRequiredMixin
 from idcops.models import (
@@ -400,11 +401,8 @@ class ZonemapView(BaseRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super(ZonemapView, self).get_context_data(**kwargs)
-        from idcops.actions import construct_model_meta
-        from django.apps import apps
         model = apps.get_model('idcops', 'zonemap')
-        title = self.get_zone
-        meta, _ = construct_model_meta(self.request, model, title)
+        meta, _ = construct_model_meta(self.request, model, str(self.get_zone))
         if self.get_mode() == 'layout':
             form = ZonemapNewForm(zone_id=self.get_zone.id)
         else:
@@ -459,7 +457,7 @@ def welcome(request):
             except Exception as e:
                 messages.error(
                     request,
-                    "loaddata initial_options.json 执行失败...,{}".format(e)
+                    "loaddata initial_options.json 执行失败..., {}".format(e)
                 )
             messages.success(
                 request, "初始化完成，请开始使用吧..."
@@ -486,49 +484,6 @@ def switch_onidc(request):
     return render(request, 'user/switch.html', {'idcs': idcs})
 
 
-class ImportOnline(BaseRequiredMixin, FormView):
-
-    template_name = 'device/import.html'
-
-    form_class = ImportOnlineForm
-
-    success_url = '/list/syslog/'
-
-    def post(self, request, *args, **kwargs):
-        form_class = self.get_form_class()
-        form = self.get_form(form_class)
-        if form.is_valid():
-            excel = form.cleaned_data['excel']
-            FilePath = getattr(settings, 'MEDIA_ROOT', '../logs')
-            name, lnk, ext = excel.name.rpartition('.')
-            endfix = '-' + str(int(time.time()))
-            FileName = os.path.join(FilePath, name + endfix + lnk + ext)
-            with open(FileName, 'wb+') as destination:
-                for chunk in excel.chunks():
-                    destination.write(chunk)
-            error, warning, success, total = import_online(
-                FileName, request.user.onidc_id
-            )
-            message = "共导入{}条：成功{}条，失败{}条".format(
-                total, len(success), len(error)
-            )
-            _content = {}
-            _content['error'] = error
-            _content['warning'] = warning
-            _content['success'] = success
-            content = json.dumps(_content, ensure_ascii=False)
-            Syslog.objects.create(
-                creator_id=request.user.pk, onidc_id=self.onidc_id,
-                content_type_id=get_content_type_for_model(Online, True).pk,
-                action_flag="导入设备", object_desc="-",
-                message=message, content=content
-            )
-            messages.info(request, "导入完成，请查看日志记录！")
-            return self.form_valid(form)
-        else:
-            return self.form_invalid(form)
-
-
 class ImportExcelView(BaseRequiredMixin, FormView):
 
     form_class = ImportExcelForm
@@ -539,7 +494,7 @@ class ImportExcelView(BaseRequiredMixin, FormView):
             "base/import.html"
         ]
 
-    success_url = '/list/syslog/'
+    success_url = reverse_lazy('idcops:list', kwargs={'model': 'syslog'})
 
     def post(self, request, *args, **kwargs):
         form_class = self.get_form_class()
